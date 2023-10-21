@@ -4,13 +4,15 @@ import (
 	"bytes"
 	"database/sql"
 	"reflect"
+	"strings"
 
-	"github.com/gotomicro/gorm-driver-dm/clauses"
 	"github.com/thoas/go-funk"
 	"gorm.io/gorm"
 	"gorm.io/gorm/callbacks"
 	"gorm.io/gorm/clause"
 	gormSchema "gorm.io/gorm/schema"
+
+	"github.com/gotomicro/gorm-driver-dm/clauses"
 )
 
 func Create(db *gorm.DB) {
@@ -70,7 +72,34 @@ func Create(db *gorm.DB) {
 
 			stmt.Build("MERGE", "WHEN MATCHED", "WHEN NOT MATCHED")
 		} else {
-			stmt.AddClauseIfNotExists(clause.Insert{Table: clause.Table{Name: stmt.TableExpr.SQL}})
+			var tableName = stmt.Table
+			if tableName == "" {
+				tableName = stmt.TableExpr.SQL
+			}
+			// 是否往自增字段插入值
+			var autoIncrementField *gormSchema.Field
+			for _, field := range schema.Fields {
+				if field.AutoIncrement {
+					autoIncrementField = field
+					break
+				}
+			}
+			var hasAutoIncrement bool
+			if autoIncrementField != nil {
+				for _, column := range values.Columns {
+					if strings.ToUpper(column.Name) == autoIncrementField.Name {
+						hasAutoIncrement = true
+						break
+					}
+				}
+			}
+
+			if hasAutoIncrement {
+				stmt.WriteString("SET IDENTITY_INSERT ")
+				stmt.WriteQuoted(tableName)
+				stmt.WriteString(" ON;")
+			}
+			stmt.AddClauseIfNotExists(clause.Insert{Table: clause.Table{Name: tableName}})
 			stmt.AddClause(clause.Values{Columns: values.Columns, Values: [][]interface{}{values.Values[0]}})
 			if hasDefaultValues {
 				stmt.AddClauseIfNotExists(clause.Returning{
@@ -79,7 +108,22 @@ func Create(db *gorm.DB) {
 					}).([]clause.Column),
 				})
 			}
-			stmt.Build("INSERT", "VALUES")
+			stmt.Build("INSERT", "VALUES", "RETURNING")
+			if hasDefaultValues {
+				stmt.WriteString(" INTO ")
+				for idx, field := range schema.FieldsWithDefaultDBValue {
+					if idx > 0 {
+						stmt.WriteByte(',')
+					}
+					boundVars[field.Name] = len(stmt.Vars)
+					stmt.AddVar(stmt, sql.Out{Dest: reflect.New(field.FieldType).Interface()})
+				}
+			}
+			if hasAutoIncrement {
+				stmt.WriteString(";SET IDENTITY_INSERT ")
+				stmt.WriteQuoted(tableName)
+				stmt.WriteString(" OFF;")
+			}
 		}
 
 		if !db.DryRun {
@@ -116,7 +160,7 @@ func Create(db *gorm.DB) {
 							func(field *gormSchema.Field) {
 								switch insertTo.Kind() {
 								case reflect.Struct:
-									if err = field.Set(insertTo, stmt.Vars[boundVars[field.Name]].(sql.Out).Dest); err != nil {
+									if err = field.Set(stmt.Context, insertTo, stmt.Vars[boundVars[field.Name]].(sql.Out).Dest); err != nil {
 										db.AddError(err)
 									}
 								case reflect.Map:
