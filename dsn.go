@@ -5,7 +5,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/gotomicro/ego-component/egorm/manager"
+	"github.com/ego-component/egorm/manager"
 	"gorm.io/gorm"
 )
 
@@ -36,10 +36,10 @@ func (m *DmDSNParser) ParseDSN(dsn string) (cfg *manager.DSN, err error) {
 
 	// [user[:password]@][net[(addr)]]/dbname[?param1=value1&paramN=valueN]
 	// Find the last '/' (since the password or the net addr might contain a '/')
-	//foundSlash := false
+	// foundSlash := false
 	for i := len(dsn) - 1; i >= 0; i-- {
 		if dsn[i] == '/' {
-			//foundSlash = true
+			// foundSlash = true
 			var j int
 
 			// left part is empty if i <= 0
@@ -70,14 +70,14 @@ func (m *DmDSNParser) ParseDSN(dsn string) (cfg *manager.DSN, err error) {
 					break
 				}
 			}
-			//cfg.DBName = dsn[i+1 : j]
+			// cfg.DBName = dsn[i+1 : j]
 
 			break
 		}
 	}
-	//if !foundSlash && len(dsn) > 0 {
+	// if !foundSlash && len(dsn) > 0 {
 	//	return nil, errInvalidDSNNoSlash
-	//}
+	// }
 	return
 }
 

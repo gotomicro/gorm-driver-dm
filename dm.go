@@ -9,13 +9,14 @@ import (
 	"time"
 
 	_ "github.com/gotomicro/dmgo"
-	"github.com/gotomicro/gorm-driver-dm/clauses"
 	"gorm.io/gorm"
 	"gorm.io/gorm/callbacks"
 	"gorm.io/gorm/clause"
 	"gorm.io/gorm/logger"
 	"gorm.io/gorm/migrator"
 	"gorm.io/gorm/schema"
+
+	"github.com/gotomicro/gorm-driver-dm/clauses"
 )
 
 type Config struct {
@@ -85,6 +86,12 @@ func (d Dialector) Initialize(db *gorm.DB) (err error) {
 	if err = db.Callback().Create().Replace("gorm:create", Create); err != nil {
 		return
 	}
+	if err = db.Callback().Row().Before("gorm:row").Register("dm:row_quota", Raw); err != nil {
+		return
+	}
+	if err = db.Callback().Raw().Before("gorm:raw").Register("dm:raw_quota", Raw); err != nil {
+		return
+	}
 
 	for k, v := range d.ClauseBuilders() {
 		db.ClauseBuilders[k] = v
@@ -114,6 +121,7 @@ func (d Dialector) BindVarTo(writer clause.Writer, stmt *gorm.Statement, v inter
 }
 
 func (d Dialector) QuoteTo(writer clause.Writer, str string) {
+	str = strings.ToUpper(str)
 	writer.WriteByte('"')
 	if strings.Contains(str, ".") {
 		for idx, str := range strings.Split(str, ".") {
@@ -248,9 +256,9 @@ func (d Dialector) RewriteLimit(c clause.Clause, builder clause.Builder) {
 			builder.WriteString(strconv.Itoa(offset))
 			builder.WriteString(" ROWS")
 		}
-		if limit := limit.Limit; limit > 0 {
+		if limit := limit.Limit; limit != nil && *limit > 0 {
 			builder.WriteString(" FETCH NEXT ")
-			builder.WriteString(strconv.Itoa(limit))
+			builder.WriteString(strconv.Itoa(*limit))
 			builder.WriteString(" ROWS ONLY")
 		}
 	}
